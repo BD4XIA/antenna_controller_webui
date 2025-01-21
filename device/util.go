@@ -5,8 +5,8 @@ import (
 	"net"
 )
 
-func (sw *Switch) Get09(path string) ([]byte, error) {
-	conn, err := net.Dial("tcp", sw.address)
+func get09(address string, path string) ([]byte, error) {
+	conn, err := net.Dial("tcp", address)
 	if err != nil {
 		return nil, err
 	}

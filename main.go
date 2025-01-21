@@ -2,7 +2,8 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"crypto/md5"
+	"encoding/hex"
 	"log"
 	"net/http"
 	"os"
@@ -10,55 +11,68 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/BD4XIA/antenna_controller_webui/web"
 	"github.com/gin-gonic/gin"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
 )
 
 // // go:embed web
 // var webFS embed.FS
 
-var db *gorm.DB
+func init() {
+	web.DBInit("data.db")
+
+	admin := web.User{
+		UserType: web.AdminUser,
+	}
+	result := web.DB.First(&admin)
+	if result.Error == nil {
+		return
+	}
+
+	passwd := "admin"
+	h := md5.Sum([]byte(passwd))
+	passwd = hex.EncodeToString(h[:])
+	h = md5.Sum([]byte(passwd + "x"))
+	passwd = hex.EncodeToString(h[:])
+
+	admin = web.User{
+		UserName: "admin",
+		UserType: web.AdminUser,
+		Password: passwd,
+	}
+	result = web.DB.Create(&admin)
+	if result.Error != nil {
+		panic(result.Error)
+	}
+}
 
 func main() {
-	var err error
-	db, err = gorm.Open(sqlite.Open("data.db"), &gorm.Config{})
-	if err != nil {
-		log.Fatal("Failed to connect to database:", err)
-	}
-	log.Println("Connected to database")
-
-	err = db.AutoMigrate(&User{}, &Device{}, &Authorization{})
-	if err != nil {
-		log.Fatal("Failed to migrate tables:", err)
-	}
-
 	r := gin.Default()
 
-	userRoutes := r.Group("/users")
+	userRoutes := r.Group("/users", web.AdminAuth)
 	{
-		userRoutes.POST("/", createUser)
-		userRoutes.GET("/", getUsers)
-		userRoutes.GET("/:id", getUser)
-		userRoutes.PUT("/:id", updateUser)
-		userRoutes.DELETE("/:id", deleteUser)
+		userRoutes.POST("/", web.CreateUser)
+		userRoutes.GET("/", web.GetUsers)
+		userRoutes.GET("/:id", web.GetUser)
+		userRoutes.PUT("/:id", web.UpdateUser)
+		userRoutes.DELETE("/:id", web.DeleteUser)
 	}
 
-	deviceRoutes := r.Group("/devices")
+	authRoutes := r.Group("/authorizations", web.AdminAuth)
 	{
-		deviceRoutes.POST("/", createDevice)
-		deviceRoutes.GET("/", getDevices)
-		deviceRoutes.GET("/:id", getDevice)
-		deviceRoutes.PUT("/:id", updateDevice)
-		deviceRoutes.DELETE("/:id", deleteDevice)
+		authRoutes.POST("/", web.CreateAuthorization)
+		authRoutes.GET("/", web.GetAuthorizations)
+		authRoutes.GET("/:id", web.GetAuthorization)
+		authRoutes.DELETE("/:id", web.DeleteAuthorization)
 	}
 
-	authRoutes := r.Group("/authorizations")
+	deviceRoutes := r.Group("/devices", web.UserAuth)
 	{
-		authRoutes.POST("/", createAuthorization)
-		authRoutes.GET("/", getAuthorizations)
-		authRoutes.GET("/:id", getAuthorization)
-		authRoutes.DELETE("/:id", deleteAuthorization)
+		deviceRoutes.POST("/", web.CreateDevice)
+		deviceRoutes.GET("/", web.GetDevices)
+		deviceRoutes.GET("/:id", web.GetDevice)
+		deviceRoutes.PUT("/:id", web.UpdateDevice)
+		deviceRoutes.DELETE("/:id", web.DeleteDevice)
 	}
 
 	r.Static("/css", "./static/css")
@@ -75,7 +89,7 @@ func main() {
 		Handler: r,
 	}
 
-	fmt.Println("start")
+	log.Println("start")
 	go server.ListenAndServe()
 
 	sig := make(chan os.Signal, 1)
@@ -85,50 +99,5 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	server.Shutdown(ctx)
-	fmt.Println("shutdown")
-
-	// sw := NewSwitch("192.168.1.150", 80)
-
-	// err := sw.EN(11)
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	// status, err := sw.Query()
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	// if status == nil {
-	// 	return
-	// }
-
-	// data := status[0]
-	// var m map[string]string
-	// err = json.Unmarshal(data, &m)
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	// for k, v := range m {
-	// 	fmt.Printf("%s %s\n", k, v)
-	// }
-
-	// rt := internal.NewRotator("192.168.1.130", 80)
-	// angles, err := rt.Query()
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// for i, angle := range angles {
-	// 	fmt.Printf("%d %s\n", i+1, angle)
-	// }
-	// setup, err := rt.Status()
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// fmt.Printf("%s %s\n", setup[0].G1000, setup[1].Stu)
-	// err = rt.EN(2)
-	// if err != nil {
-	// 	panic(err)
-	// }
+	log.Println("shutdown")
 }
